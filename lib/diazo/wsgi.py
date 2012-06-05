@@ -77,6 +77,10 @@ class WSGIResolver(etree.Resolver):
         if system_url.startswith('diazo:'):
             return None
         
+        # Ignore path of file
+        if not '://' in system_url and os.path.exists(system_url):
+            return None
+
         subrequest = Request.blank(system_url)
         response = subrequest.get_response(self.app)
         
