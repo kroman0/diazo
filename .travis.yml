@@ -5,7 +5,7 @@ python:
 before_install:
   - sudo apt-get install libxslt-dev
 install:
-  - python bootstrap.py
+  - python bootstrap.py init
   - bin/buildout -t 5 -Nq
 script:
   - bin/test
