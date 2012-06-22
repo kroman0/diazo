@@ -133,14 +133,62 @@ XSLT_PARAM = """\
 </xsl:stylesheet>
 """
 
+from diazo.wsgi import DiazoMiddleware, XSLTMiddleware, FilesystemResolver, PythonResolver, WSGIResolver, NetworkResolver
+from webob import Request
+from lxml import etree
+from diazo.compiler import compile_theme
+from random import shuffle
+
+class RandomDiazoMiddleware(DiazoMiddleware):
+    def compile_theme(self):
+        """Compile the Diazo theme, returning an lxml tree (containing an XSLT
+        document)
+        """
+
+        filesystem_resolver = FilesystemResolver()
+        python_resolver = PythonResolver()
+        wsgi_resolver = WSGIResolver(self.app)
+        network_resolver = NetworkResolver()
+        null_resolver = etree.Resolver()
+
+        rules_parser = etree.XMLParser(recover=False)
+        resolvers = [filesystem_resolver, wsgi_resolver, python_resolver, null_resolver]
+        shuffle(resolvers)
+        for resolver in resolvers:
+            rules_parser.resolvers.add(resolver)
+        if self.read_network:
+            rules_parser.resolvers.add(network_resolver)
+
+        theme_parser = etree.HTMLParser()
+        resolvers = [filesystem_resolver, wsgi_resolver, python_resolver, null_resolver]
+        shuffle(resolvers)
+        for resolver in resolvers:
+            theme_parser.resolvers.add(resolver)
+        if self.read_network:
+            theme_parser.resolvers.add(network_resolver)
+
+        xsl_params = self.params.copy()
+        for value in self.environ_param_map.values():
+            if value not in xsl_params:
+                xsl_params[value] = None
+
+        return compile_theme(self.rules,
+                theme=self.theme,
+                absolute_prefix=self.absolute_prefix,
+                includemode=self.includemode,
+                access_control=self.access_control,
+                read_network=self.read_network,
+                parser=theme_parser,
+                rules_parser=rules_parser,
+                xsl_params=xsl_params,
+            )
+
+
 class TestXSLTMiddleware(unittest.TestCase):
     
     def test_transform_filename(self):
         import tempfile
         import os
-        
-        from diazo.wsgi import XSLTMiddleware
-        from webob import Request
         
         _, filename = tempfile.mkstemp()
         with open(filename, 'w') as fp:
@@ -163,10 +211,6 @@ class TestXSLTMiddleware(unittest.TestCase):
         self.assertTrue('<title>Transformed</title>' in response.body)
     
     def test_transform_tree(self):
-        from lxml import etree
-        
-        from diazo.wsgi import XSLTMiddleware
-        from webob import Request
         
         def application(environ, start_response):
             status = '200 OK'
@@ -184,10 +228,6 @@ class TestXSLTMiddleware(unittest.TestCase):
         self.assertTrue('<title>Transformed</title>' in response.body)
     
     def test_head_request(self):
-        from lxml import etree
-        
-        from diazo.wsgi import XSLTMiddleware
-        from webob import Request
         
         def application(environ, start_response):
             status = '200 OK'
@@ -206,10 +246,6 @@ class TestXSLTMiddleware(unittest.TestCase):
         self.assertFalse(response.body)
     
     def test_update_content_length(self):
-        from lxml import etree
-        
-        from diazo.wsgi import XSLTMiddleware
-        from webob import Request
         
         def application(environ, start_response):
             status = '200 OK'
@@ -227,10 +263,6 @@ class TestXSLTMiddleware(unittest.TestCase):
         self.assertEqual(response.headers['Content-Length'], '178')
     
     def test_dont_update_content_length(self):
-        from lxml import etree
-        
-        from diazo.wsgi import XSLTMiddleware
-        from webob import Request
         
         def application(environ, start_response):
             status = '200 OK'
@@ -247,10 +279,7 @@ class TestXSLTMiddleware(unittest.TestCase):
         self.assertEqual(response.headers.get('Content-Length'), None)
 
     def test_content_range(self):
-        from lxml import etree
 
-        from diazo.wsgi import XSLTMiddleware
-        from webob import Request
 
         def application(environ, start_response):
             status = '200 OK'
@@ -272,10 +301,6 @@ class TestXSLTMiddleware(unittest.TestCase):
         self.assertFalse('Content-Range' in response.headers)
 
     def test_no_content_length(self):
-        from lxml import etree
-        
-        from diazo.wsgi import XSLTMiddleware
-        from webob import Request
         
         def application(environ, start_response):
             status = '200 OK'
@@ -292,10 +317,6 @@ class TestXSLTMiddleware(unittest.TestCase):
         self.assertFalse('Content-Length' in response.headers)
     
     def test_doctype_html(self):
-        from lxml import etree
-        
-        from diazo.wsgi import XSLTMiddleware
-        from webob import Request
         
         def application(environ, start_response):
             status = '200 OK'
@@ -311,10 +332,6 @@ class TestXSLTMiddleware(unittest.TestCase):
         self.assertEqual(response.headers['Content-Type'], 'text/html; charset=UTF-8')
     
     def test_doctype_xhtml(self):
-        from lxml import etree
-        
-        from diazo.wsgi import XSLTMiddleware
-        from webob import Request
         
         def application(environ, start_response):
             status = '200 OK'
@@ -330,10 +347,6 @@ class TestXSLTMiddleware(unittest.TestCase):
         self.assertEqual(response.headers['Content-Type'], 'application/xhtml+xml; charset=UTF-8')
     
     def test_doctype_html5(self):
-        from lxml import etree
-        
-        from diazo.wsgi import XSLTMiddleware
-        from webob import Request
         
         def application(environ, start_response):
             status = '200 OK'
@@ -350,10 +363,6 @@ class TestXSLTMiddleware(unittest.TestCase):
         self.assertTrue(response.body.startswith("<!DOCTYPE html>\n<html")) 
     
     def test_ignored_extension(self):
-        from lxml import etree
-        
-        from diazo.wsgi import XSLTMiddleware
-        from webob import Request
         
         def application(environ, start_response):
             status = '200 OK'
@@ -376,10 +385,6 @@ class TestXSLTMiddleware(unittest.TestCase):
         self.assertTrue('<title>Transformed</title>' in response.body)
     
     def test_diazo_off_request_header(self):
-        from lxml import etree
-        
-        from diazo.wsgi import XSLTMiddleware
-        from webob import Request
         
         def application(environ, start_response):
             status = '200 OK'
@@ -403,10 +408,6 @@ class TestXSLTMiddleware(unittest.TestCase):
         self.assertTrue('<title>Transformed</title>' in response.body)
     
     def test_diazo_off_response_header(self):
-        from lxml import etree
-        
-        from diazo.wsgi import XSLTMiddleware
-        from webob import Request
         
         def application1(environ, start_response):
             status = '200 OK'
@@ -438,10 +439,6 @@ class TestXSLTMiddleware(unittest.TestCase):
         self.assertTrue('<title>Transformed</title>' in response.body)
     
     def test_non_html_content_type(self):
-        from lxml import etree
-        
-        from diazo.wsgi import XSLTMiddleware
-        from webob import Request
         
         def application1(environ, start_response):
             status = '200 OK'
@@ -471,10 +468,6 @@ class TestXSLTMiddleware(unittest.TestCase):
         self.assertTrue('<title>Transformed</title>' in response.body)
     
     def test_content_encoding(self):
-        from lxml import etree
-        
-        from diazo.wsgi import XSLTMiddleware
-        from webob import Request
         
         def application1(environ, start_response):
             status = '200 OK'
@@ -505,10 +498,6 @@ class TestXSLTMiddleware(unittest.TestCase):
         self.assertTrue('<title>Transformed</title>' in response.body)
     
     def test_301(self):
-        from lxml import etree
-        
-        from diazo.wsgi import XSLTMiddleware
-        from webob import Request
         
         def application1(environ, start_response):
             status = '301 MOVED PERMANENTLY'
@@ -538,10 +527,6 @@ class TestXSLTMiddleware(unittest.TestCase):
         self.assertTrue('<title>Transformed</title>' in response.body)
     
     def test_302(self):
-        from lxml import etree
-        
-        from diazo.wsgi import XSLTMiddleware
-        from webob import Request
         
         def application1(environ, start_response):
             status = '302 MOVED'
@@ -571,10 +556,6 @@ class TestXSLTMiddleware(unittest.TestCase):
         self.assertTrue('<title>Transformed</title>' in response.body)
     
     def test_304(self):
-        from lxml import etree
-        
-        from diazo.wsgi import XSLTMiddleware
-        from webob import Request
         
         def application1(environ, start_response):
             status = '304 NOT MODIFIED'
@@ -604,10 +585,6 @@ class TestXSLTMiddleware(unittest.TestCase):
         self.assertTrue('<title>Transformed</title>' in response.body)
     
     def test_204(self):
-        from lxml import etree
-        
-        from diazo.wsgi import XSLTMiddleware
-        from webob import Request
         
         def application1(environ, start_response):
             status = '204 NO CONTENT'
@@ -637,10 +614,6 @@ class TestXSLTMiddleware(unittest.TestCase):
         self.assertTrue('<title>Transformed</title>' in response.body)
     
     def test_401(self):
-        from lxml import etree
-        
-        from diazo.wsgi import XSLTMiddleware
-        from webob import Request
         
         def application1(environ, start_response):
             status = '401 UNAUTHORIZED'
@@ -670,10 +643,6 @@ class TestXSLTMiddleware(unittest.TestCase):
         self.assertTrue('<title>Transformed</title>' in response.body)
     
     def test_html_serialization(self):
-        from lxml import etree
-        
-        from diazo.wsgi import XSLTMiddleware
-        from webob import Request
         
         def application(environ, start_response):
             status = '200 OK'
@@ -706,10 +675,6 @@ class TestXSLTMiddleware(unittest.TestCase):
         self.assertTrue('<br/>' in response.body)
     
     def test_environ_param(self):
-        from lxml import etree
-        
-        from diazo.wsgi import XSLTMiddleware
-        from webob import Request
         
         def application(environ, start_response):
             status = '200 OK'
@@ -732,10 +697,6 @@ class TestXSLTMiddleware(unittest.TestCase):
         self.assertTrue('<p>value1</p>' in response.body)
     
     def test_params(self):
-        from lxml import etree
-        
-        from diazo.wsgi import XSLTMiddleware
-        from webob import Request
         
         def application(environ, start_response):
             status = '200 OK'
@@ -757,10 +718,9 @@ class TestXSLTMiddleware(unittest.TestCase):
         self.assertTrue('<p>value1</p>' in response.body)
 
 class TestDiazoMiddleware(unittest.TestCase):
+    middleware = DiazoMiddleware
     
     def test_simple_transform(self):
-        from diazo.wsgi import DiazoMiddleware
-        from webob import Request
         
         def application(environ, start_response):
             status = '200 OK'
@@ -768,7 +728,7 @@ class TestDiazoMiddleware(unittest.TestCase):
             start_response(status, response_headers)
             return [HTML]
         
-        app = DiazoMiddleware(application, {}, testfile('simple_transform.xml'))
+        app = self.middleware(application, {}, testfile('simple_transform.xml'))
         request = Request.blank('/')
         response = request.get_response(app)
         
@@ -777,8 +737,6 @@ class TestDiazoMiddleware(unittest.TestCase):
         self.assertTrue('<title>Transformed</title>' in response.body)
     
     def test_doctype_html5(self):
-        from diazo.wsgi import DiazoMiddleware
-        from webob import Request
         
         def application(environ, start_response):
             status = '200 OK'
@@ -786,16 +744,17 @@ class TestDiazoMiddleware(unittest.TestCase):
             start_response(status, response_headers)
             return [HTML]
         
-        app = DiazoMiddleware(application, {}, testfile('simple_transform.xml'),
+        app = self.middleware(application, {}, testfile('simple_transform.xml'),
                               doctype="<!DOCTYPE html>")
         request = Request.blank('/')
         response = request.get_response(app)
         
         self.assertTrue(response.body.startswith("<!DOCTYPE html>\n<html")) 
+        self.assertTrue('<div id="content">Content content</div>' in response.body)
+        self.assertFalse('<div id="content">Theme content</div>' in response.body)
+        self.assertTrue('<title>Transformed</title>' in response.body)
     
     def test_with_theme(self):
-        from diazo.wsgi import DiazoMiddleware
-        from webob import Request
         
         def application(environ, start_response):
             status = '200 OK'
@@ -803,7 +762,7 @@ class TestDiazoMiddleware(unittest.TestCase):
             start_response(status, response_headers)
             return [HTML]
         
-        app = DiazoMiddleware(application, {}, testfile('explicit_theme.xml'),
+        app = self.middleware(application, {}, testfile('explicit_theme.xml'),
             theme='file://' + testfile('theme.html'))
         request = Request.blank('/')
         response = request.get_response(app)
@@ -813,8 +772,6 @@ class TestDiazoMiddleware(unittest.TestCase):
         self.assertTrue('<title>Transformed</title>' in response.body)
     
     def test_absolute_prefix(self):
-        from diazo.wsgi import DiazoMiddleware
-        from webob import Request
         
         def application(environ, start_response):
             status = '200 OK'
@@ -822,7 +779,7 @@ class TestDiazoMiddleware(unittest.TestCase):
             start_response(status, response_headers)
             return [HTML]
         
-        app = DiazoMiddleware(application, {}, testfile('simple_transform.xml'))
+        app = self.middleware(application, {}, testfile('simple_transform.xml'))
         request = Request.blank('/')
         response = request.get_response(app)
         
@@ -831,7 +788,7 @@ class TestDiazoMiddleware(unittest.TestCase):
         self.assertTrue('<title>Transformed</title>' in response.body)
         self.assertTrue('<link rel="stylesheet" href="./theme.css" />' in response.body)
         
-        app = DiazoMiddleware(application, {}, testfile('simple_transform.xml'),
+        app = self.middleware(application, {}, testfile('simple_transform.xml'),
                 prefix='/static')
         request = Request.blank('/')
         response = request.get_response(app)
@@ -842,8 +799,6 @@ class TestDiazoMiddleware(unittest.TestCase):
         self.assertTrue('<link rel="stylesheet" href="/static/theme.css" />' in response.body)
     
     def test_path_param(self):
-        from diazo.wsgi import DiazoMiddleware
-        from webob import Request
         
         def application(environ, start_response):
             status = '200 OK'
@@ -851,7 +806,7 @@ class TestDiazoMiddleware(unittest.TestCase):
             start_response(status, response_headers)
             return [HTML]
         
-        app = DiazoMiddleware(application, {}, testfile('path_param.xml'))
+        app = self.middleware(application, {}, testfile('path_param.xml'))
         request = Request.blank('/')
         response = request.get_response(app)
         
@@ -867,8 +822,6 @@ class TestDiazoMiddleware(unittest.TestCase):
         self.assertTrue('<title>Transformed</title>' in response.body)
     
     def test_custom_environ_param(self):
-        from diazo.wsgi import DiazoMiddleware
-        from webob import Request
         
         def application(environ, start_response):
             status = '200 OK'
@@ -876,7 +829,7 @@ class TestDiazoMiddleware(unittest.TestCase):
             start_response(status, response_headers)
             return [HTML]
         
-        app = DiazoMiddleware(application, {}, testfile('custom_param.xml'),
+        app = self.middleware(application, {}, testfile('custom_param.xml'),
             environ_param_map={'test.param1': 'someparam'})
         
         request = Request.blank('/')
@@ -903,8 +856,6 @@ class TestDiazoMiddleware(unittest.TestCase):
         self.assertTrue('<title>Transformed</title>' in response.body)
     
     def test_custom_param(self):
-        from diazo.wsgi import DiazoMiddleware
-        from webob import Request
         
         def application(environ, start_response):
             status = '200 OK'
@@ -912,7 +863,7 @@ class TestDiazoMiddleware(unittest.TestCase):
             start_response(status, response_headers)
             return [HTML]
         
-        app = DiazoMiddleware(application, {}, testfile('custom_param.xml'),
+        app = self.middleware(application, {}, testfile('custom_param.xml'),
                 someparam='value1')
         request = Request.blank('/')
         response = request.get_response(app)
@@ -921,7 +872,7 @@ class TestDiazoMiddleware(unittest.TestCase):
         self.assertFalse('<div id="content">Theme content</div>' in response.body)
         self.assertTrue('<title>Transformed</title>' in response.body)
         
-        app = DiazoMiddleware(application, {}, testfile('custom_param.xml'),
+        app = self.middleware(application, {}, testfile('custom_param.xml'),
                 someparam='value2')
         request = Request.blank('/')
         response = request.get_response(app)
@@ -931,8 +882,6 @@ class TestDiazoMiddleware(unittest.TestCase):
         self.assertTrue('<title>Transformed</title>' in response.body)
     
     def test_subrequest(self):
-        from diazo.wsgi import DiazoMiddleware
-        from webob import Request
         
         def application(environ, start_response):
             status = '200 OK'
@@ -945,7 +894,7 @@ class TestDiazoMiddleware(unittest.TestCase):
             else:
                 return [HTML]
         
-        app = DiazoMiddleware(application, {}, testfile('subrequest.xml'))
+        app = self.middleware(application, {}, testfile('subrequest.xml'))
         request = Request.blank('/')
         response = request.get_response(app)
         
@@ -954,8 +903,6 @@ class TestDiazoMiddleware(unittest.TestCase):
         self.assertTrue('<title>Transformed</title>' in response.body)
 
     def test_esi(self):
-        from diazo.wsgi import DiazoMiddleware
-        from webob import Request
         
         def application(environ, start_response):
             status = '200 OK'
@@ -968,7 +915,7 @@ class TestDiazoMiddleware(unittest.TestCase):
             else:
                 return [HTML]
         
-        app = DiazoMiddleware(application, {}, testfile('esi.xml'), filter_xpath=True)
+        app = self.middleware(application, {}, testfile('esi.xml'), filter_xpath=True)
         request = Request.blank('/')
         response = request.get_response(app)
         
@@ -981,6 +928,8 @@ class TestDiazoMiddleware(unittest.TestCase):
         # Strip response body in this test due to https://bugzilla.gnome.org/show_bug.cgi?id=652766
         self.assertEqual('<div id="content">Alternative content</div>', response.body.strip())
 
+class TestRandomDiazoMiddleware(TestDiazoMiddleware):
+    middleware = RandomDiazoMiddleware
 
 def test_suite():
     return unittest.defaultTestLoader.loadTestsFromName(__name__)
